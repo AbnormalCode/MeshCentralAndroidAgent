@@ -6,9 +6,11 @@ non-root Android application.
 
 ## Summary
 
-Remote desktop is currently **screen sharing only**. A MeshCentral operator can
-see the device display, but cannot tap, swipe, type, press navigation buttons,
-lock input, or otherwise control the device.
+A MeshCentral operator can always see the device display. Control of the device
+is off by default and needs the device user to turn on **Remote Input** in the
+agent settings and enable the MeshCentral accessibility service, which is
+described in [Remote input](remote-input.md). Input lock is not supported in
+either case, because Android cannot block input on the physical device.
 
 The agent uses Android's public
 [MediaProjection API](https://developer.android.com/media/grow/media-projection)
@@ -68,11 +70,17 @@ available frame, the service:
 6. Encodes regions as JPEG by default. PNG and WebP are also supported; TIFF is
    not supported by the Android implementation.
 
-The server can request image type, compression quality, and scaling. A frame
-rate value is parsed from the desktop settings message, but the current capture
-code does not apply it as a time-based limiter. Actual update speed is therefore
-determined by display activity, image processing cost, device performance, and
-network throughput.
+The server can request image type, compression quality, scaling, and frame rate.
+The frame rate is a minimum delay in milliseconds between frames, clamped to two
+seconds, and frames captured before that delay has passed are dropped. Actual
+update speed is therefore the slower of the requested rate and what display
+activity, image processing cost, device performance, and network throughput
+allow.
+
+The server can also pause the stream and ask for a refresh. While paused, frames
+are dropped without being encoded. Resuming, refreshing, or a new desktop
+session each send the complete display rather than changed tiles, so the
+operator never resumes onto a stale image.
 
 If an outgoing WebSocket queue grows beyond 65,535 bytes, the service skips
 frames until the queue drains. This favors a current display over delivering

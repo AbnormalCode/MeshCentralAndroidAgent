@@ -23,9 +23,11 @@ are:
 - Approving or rejecting MeshCentral push-based two-factor authentication
   requests.
 
-The remote desktop implementation is currently **view only**. Protocol handlers
-for keyboard, mouse, Unicode key, and input-lock messages exist, but they are
-no-ops. This app does not currently provide general remote input control.
+Remote desktop is view only until the device user turns on **Remote Input** in
+the agent settings and enables the MeshCentral accessibility service. With both
+enabled, mouse and keyboard messages are turned into taps, swipes and text
+entry; with either one off, the keyboard, mouse, Unicode key and input-lock
+messages are decoded and discarded. See [Remote input](remote-input.md).
 
 ## Project Snapshot
 
@@ -86,12 +88,25 @@ to this shared state directly.
   intent filter.
 - `AuthFragment.kt` displays a decoded 2FA code with approve and reject actions.
   Requests expire after approximately 60 seconds.
-- `SettingsFragment.kt` exposes automatic connection and automatic screen-share
-  consent preferences.
+- `SettingsFragment.kt` exposes automatic connection, automatic screen-share
+  consent, and remote input preferences.
 - `WebViewFragment.kt` provides an in-app browser used by the `openurl` console
   command. A separate `openbrowser` command launches the system browser.
 - `nav_graph.xml` defines navigation from the home screen to scanner, browser,
   authentication, and settings screens.
+
+### Remote Input and File Access
+
+- `RemoteInputProtocol.kt` decodes desktop input messages and recognises
+  gestures. It has no Android dependencies and is unit tested.
+- `RemoteInputService.kt` is an accessibility service that dispatches gestures,
+  navigation actions, and text entry. The device user enables it in Android's
+  settings and can disable it at any time.
+- `RemoteInputController.kt` applies the consent checks, scales coordinates back
+  to device pixels, and drives the service.
+- `StorageAccess.kt` manages the folder the device user grants with the Android
+  document picker, and serves the `Files` root of the file manager.
+- `DeviceCommands.kt` holds the helpers behind the device console commands.
 
 ### Agent Control Channel
 
@@ -125,17 +140,23 @@ in addition to the mobile/desktop-view capability.
 `MeshTunnel.kt` creates a separate pinned WebSocket for each MeshCentral relay
 session. Implemented tunnel usages are:
 
-- **Usage 2, remote desktop:** negotiates display settings and streams screen
-  images. Remote keyboard and pointer command cases are recognized but ignored.
+- **Usage 2, remote desktop:** negotiates display settings, streams screen
+  images, and handles refresh and pause requests. Keyboard, mouse and Unicode
+  key messages are dispatched to `RemoteInputController` when remote input is
+  enabled.
 - **Usage 5, files:** lists shared storage and MediaStore collections, accepts
-  uploads, and handles deletion. Modern Android deletion can invoke the system's
-  recoverable-security consent flow.
-- **Usage 10, file transfer:** streams a selected file from shared storage or a
-  MediaStore collection to the server.
+  uploads, and handles deletion, folder creation and renaming. Modern Android
+  deletion can invoke the system's recoverable-security consent flow.
+- **Usage 10, file transfer:** streams a selected file from shared storage, a
+  MediaStore collection, or the shared folder to the server.
 
-The virtual roots presented to MeshCentral are `Sdcard`, `Images`, `Audio`, and
-`Videos`. Behavior differs across Android versions because Android 10 and later
-use scoped MediaStore APIs while older versions use public storage paths.
+The virtual roots presented to MeshCentral are `Files`, `Sdcard`, `Images`,
+`Audio`, and `Videos`. `Files` only appears once the device user has granted a
+folder through the Android document picker, and it is the only root with full
+read, write, rename and folder support on Android 10 and later. Behavior for
+the other roots differs across Android versions because Android 10 and later
+use scoped MediaStore APIs while older versions use public storage paths. See
+[File access](file-access.md).
 
 ### Screen Capture
 
@@ -166,8 +187,10 @@ stored pairing link. Depending on payload, the service can:
 - Route a `2fa://` URL to the approval UI.
 - Ask `MainActivity` to show a standard Android notification, optionally with a
   URL action.
-- Process a limited push console command set (`flash`, `netinfo`, `sysinfo`, and
-  `vibrate`) and send a response through FCM.
+- Process a limited push console command set (`flash`, `location`, `netinfo`,
+  `ring`, `sysinfo`, `uptime`, `version`, and `vibrate`) and send a response
+  through FCM. The commands that need no activity, such as `location` and
+  `ring`, work even when the app is not in the foreground.
 
 For 2FA, `AuthFragment` extracts and Base64-decodes the `code` query parameter.
 The user's decision is sent over the authenticated control WebSocket by
@@ -178,9 +201,18 @@ The user's decision is sent over the authenticated control WebSocket by
 The connected agent channel supports commands for:
 
 - Local UI: `alert`, `toast`, `openurl`, `openbrowser`, `uiclose`, and `uistate`.
-- Device actions: `dial`, `flash`, and `vibrate`.
-- Inspection: `battery`, `netinfo`, `storageinfo`, and `sysinfo`.
+- Device actions: `dial`, `flash`, `launch`, `ring`, `vibrate`, and `volume`.
+- Inspection: `apps`, `battery`, `clipboard`, `location`, `netinfo`,
+  `storageinfo`, `sysinfo`, `uptime`, and `version`.
+- Remote input: `back`, `home`, `input`, `lock`, `notifications`, `recents`,
+  `swipe`, `tap`, and `type`. These report why they are unavailable when remote
+  input is off or the accessibility service is not enabled.
 - Agent operations: `kvmstart`, `kvmstop`, `serverlog`, and `help`.
+
+`clipboard` and `location` depend on Android runtime restrictions: the
+clipboard is only readable while the agent is the foreground app on Android 10
+and later, and `location` reports the last known fix rather than requesting a
+new one.
 
 Commands and relevant actions are logged back to the server. Some actions open
 Android UI or require an active activity and therefore are not silent background
@@ -218,13 +250,17 @@ users cannot replace or clear the configured server.
 3. Uploads write through MediaStore on Android 10+ for supported media types, or
    to public storage on older Android versions.
 4. Deletions may require Android's per-item confirmation UI.
+5. Requests below the `Files` root are served through `StorageAccess`, which
+   resolves each path segment by display name inside the folder the user
+   granted, so a request cannot escape that folder.
 
 ## Storage and Process State
 
 Persistent state is split between two SharedPreferences stores:
 
 - `meshagent`: pairing link, agent certificate, and private key.
-- Default preferences: automatic connection and automatic consent flags.
+- Default preferences: automatic connection, automatic consent and remote input
+  flags, plus the granted shared-folder URI.
 
 Most live state is held in process-wide Kotlin variables. There is no database,
 repository layer, dependency injection container, or persistent background work
@@ -236,6 +272,8 @@ reconnects only when the current settings and Android lifecycle permit it.
 The manifest declares:
 
 - Network and device actions: `INTERNET`, `VIBRATE`, and `CAMERA`.
+- Location for the `location` console command: `ACCESS_COARSE_LOCATION` and
+  `ACCESS_FINE_LOCATION`.
 - Notifications: `POST_NOTIFICATIONS`.
 - Media access on Android 13+: `READ_MEDIA_IMAGES`, `READ_MEDIA_AUDIO`, and
   `READ_MEDIA_VIDEO`.
@@ -245,8 +283,15 @@ The manifest declares:
   `FOREGROUND_SERVICE_MEDIA_PROJECTION`.
 
 The camera is optional hardware. The manifest registers `MainActivity`, the FCM
-service, and `ScreenCaptureService`. It also removes Google Mobile Ads' `AD_ID`
-permission during manifest merging.
+service, `ScreenCaptureService`, and `RemoteInputService`. It also declares a
+`<queries>` element so the `apps` console command can enumerate launchable
+applications without the restricted `QUERY_ALL_PACKAGES` permission, and removes
+Google Mobile Ads' `AD_ID` permission during manifest merging.
+
+`RemoteInputService` is an accessibility service, which Android protects with
+`BIND_ACCESSIBILITY_SERVICE` and only starts once the device user enables it.
+Access to the `Files` root uses a persisted document-tree grant rather than a
+storage permission.
 
 ## Dependencies
 

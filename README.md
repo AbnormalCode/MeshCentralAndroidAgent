@@ -9,16 +9,22 @@ Pair a device by scanning a MeshCentral QR code, opening an `mc://` pairing
 link, or entering the link manually. After enrollment, the app maintains an
 authenticated connection to the server and can:
 
-- Report device, network, storage, and battery information.
+- Report device, network, storage, battery, location, and uptime information.
 - Share the device screen after Android MediaProjection consent.
-- Browse and transfer media and files available to the app.
-- Receive server notifications and a limited set of console commands.
+- Control the device with taps, swipes and typing, once the device user enables
+  remote input.
+- Browse and transfer media, and any folder the device user shares with the
+  agent, including folder creation and renaming.
+- List and launch installed applications, read and set the clipboard, adjust the
+  volume, and ring the device to find it.
+- Receive server notifications and console commands.
 - Approve or reject MeshCentral push-based two-factor authentication requests.
 
-Remote desktop is currently **view only**. The app can stream the display, but
-it cannot tap, swipe, type, or otherwise control the device. Android displays a
-foreground notification while screen sharing is active, and the user can deny
-or stop capture at any time.
+Remote desktop is **view only by default**. Control needs two separate opt-ins
+from the device user: the Remote Input setting in the app, and the MeshCentral
+accessibility service in Android's settings. Turning either one off ends remote
+control immediately. Android displays a foreground notification while screen
+sharing is active, and the user can deny or stop capture at any time.
 
 ## Install
 
@@ -55,6 +61,10 @@ releases require a dedicated signing keystore; see the release guide below.
 	configuration, and development notes.
 - [Remote desktop](docs/remote-desktop.md) - screen-capture flow, consent,
 	encoding, and Android platform limitations.
+- [Remote input](docs/remote-input.md) - consent, how mouse and keyboard map to
+	Android gestures, and console commands.
+- [File access](docs/file-access.md) - storage roots, granting a folder, and
+	what each root supports.
 - [Tunnel authentication](docs/tunnel-authentication.md) - control-channel
 	authentication, certificate pinning, and relay tunnel trust.
 - [Push two-factor authentication](docs/two-factor-authentication.md) - FCM

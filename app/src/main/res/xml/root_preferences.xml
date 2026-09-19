@@ -17,6 +17,13 @@
             app:summaryOff="@string/always_ask_for_consent_when_remote_agent_connects"
             app:defaultValue="false"
             app:useSimpleSummaryProvider="true" />
+        <SwitchPreferenceCompat
+            app:key="pref_remoteinput"
+            app:title="@string/remote_input"
+            app:summaryOn="@string/remote_input_allowed"
+            app:summaryOff="@string/remote_input_blocked"
+            app:defaultValue="false"
+            app:useSimpleSummaryProvider="true" />
 
     </PreferenceCategory>
 </PreferenceScreen>

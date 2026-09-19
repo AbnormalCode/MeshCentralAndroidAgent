@@ -312,11 +312,13 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
 
     private fun processBinaryDesktopCmd(cmd : Int, cmdsize: Int, msg: ByteString) {
         when (cmd) {
-            1 -> { // Legacy key input
-                // Nop
-            }
-            2 -> { // Mouse input
-                // Nop
+            MNG_KVM_KEY, MNG_KVM_MOUSE, MNG_KVM_KEY_UNICODE, MNG_KVM_INPUT_LOCK -> {
+                // Remote input. This only does something when the device user turned on
+                // remote input and enabled the accessibility service.
+                if (RemoteInputController.isAvailable()) {
+                    val event = decodeRemoteInputCommand(cmd, msg.toByteArray())
+                    if (event != null) RemoteInputController.handle(event)
+                }
             }
             5 -> { // Remote Desktop Settings
                 if (cmdsize < 6) return
@@ -327,18 +329,12 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
                 println("Desktop Settings, type=$g_desktop_imageType, comp=$g_desktop_compressionLevel, scale=$g_desktop_scalingLevel, rate=$g_desktop_frameRateLimiter")
                 updateDesktopDisplaySize()
             }
-            6 -> { // Refresh
-                // Nop
-                println("Desktop Refresh")
+            6 -> { // Refresh, resend the complete display on the next frame
+                g_ScreenCaptureService?.requestFullFrame()
             }
-            8 -> { // Pause
-                // Nop
-            }
-            85 -> { // Unicode key input
-                // Nop
-            }
-            87 -> { // Input Lock
-                // Nop
+            8 -> { // Pause or resume the display stream
+                val paused = (cmdsize >= 5) && (msg[4].toInt() != 0)
+                g_ScreenCaptureService?.setPaused(paused)
             }
             else -> {
                 println("Unknown desktop binary command: $cmd, Size: ${msg.size}, Hex: ${msg.toByteArray().toHex()}")
@@ -408,6 +404,10 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
                 val path = json.getString("path")
                 if (path == "") {
                     var r: JSONArray = JSONArray()
+                    // The shared folder is only offered once the device user has picked one
+                    if (StorageAccess.hasAccess(parent.parent.applicationContext)) {
+                        r.put(JSONObject("{n:\"${StorageAccess.ROOT_NAME}\",t:2}"))
+                    }
                     r.put(JSONObject("{n:\"Sdcard\",t:2}"))
                     r.put(JSONObject("{n:\"Images\",t:2}"))
                     r.put(JSONObject("{n:\"Audio\",t:2}"))
@@ -426,6 +426,40 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
                 val path = json.getString("path")
                 val filenames = json.getJSONArray("delfiles")
                 deleteFile(path, filenames, json)
+            }
+            "mkdir" -> {
+                // {"action":"mkdir","reqid":0,"path":"Files/Reports/New folder"}
+                val fullPath = json.optString("path")
+                val parentPath = fullPath.substringBeforeLast('/', "")
+                val name = fullPath.substringAfterLast('/', "")
+                var success = false
+                if ((parentPath != "") && isSafeFileName(name)) {
+                    if (StorageAccess.isStoragePath(fullPath)) {
+                        success = StorageAccess.createFolder(parent.parent.applicationContext, parentPath, name)
+                    } else if (parentPath.startsWith("Sdcard")) {
+                        val folder = resolveSdcardChild(Environment.getExternalStorageDirectory(), parentPath, name)
+                        success = (folder != null) && folder.mkdir()
+                    }
+                }
+                fileOperationResponse(json, "mkdir", success)
+            }
+            "rename" -> {
+                // {"action":"rename","reqid":0,"path":"Files","oldname":"a.txt","newname":"b.txt"}
+                val path = json.optString("path")
+                val oldName = json.optString("oldname")
+                val newName = json.optString("newname")
+                var success = false
+                if (isSafeFileName(oldName) && isSafeFileName(newName)) {
+                    if (StorageAccess.isStoragePath(path)) {
+                        success = StorageAccess.rename(parent.parent.applicationContext, path, oldName, newName)
+                    } else if (path.startsWith("Sdcard")) {
+                        val root = Environment.getExternalStorageDirectory()
+                        val from = resolveSdcardChild(root, path, oldName)
+                        val to = resolveSdcardChild(root, path, newName)
+                        success = (from != null) && (to != null) && from.exists() && !to.exists() && from.renameTo(to)
+                    }
+                }
+                fileOperationResponse(json, "rename", success)
             }
             "upload" -> {
                 // {"action":"upload","reqid":0,"path":"Images","name":"00000000.JPG","size":1180231}
@@ -450,7 +484,13 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
                 fileUploadReqId = reqid
                 fileUploadSize = 0
 
-                if (path.startsWith("Sdcard")) {
+                if (StorageAccess.isStoragePath(path)) {
+                    fileUpload = StorageAccess.openForWrite(parent.parent.applicationContext, path, name)
+                    if (fileUpload == null) {
+                        uploadError()
+                        return
+                    }
+                } else if (path.startsWith("Sdcard")) {
                     val file = resolveSdcardChild(Environment.getExternalStorageDirectory(), path, name)
                     if (file == null) {
                         uploadError()
@@ -544,6 +584,18 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
     // https://developer.android.com/training/data-storage/shared/media
     fun getFolder(dir: String) : JSONArray {
         val r : JSONArray = JSONArray()
+        if (StorageAccess.isStoragePath(dir)) {
+            val entries = StorageAccess.listFolder(parent.parent.applicationContext, dir) ?: return r
+            for (entry in entries) {
+                val f = JSONObject()
+                f.put("n", entry.name)
+                f.put("t", if (entry.isDirectory) 2 else 3)
+                f.put("s", entry.size)
+                f.put("d", entry.modified)
+                r.put(f)
+            }
+            return r
+        }
         val projection = arrayOf(
                 MediaStore.MediaColumns.DISPLAY_NAME,
                 MediaStore.MediaColumns.DATE_MODIFIED,
@@ -598,6 +650,13 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
 
     @Suppress("DEPRECATION")
     fun deleteFile(path: String, filenames: JSONArray, req: JSONObject) {
+        if (StorageAccess.isStoragePath(path)) {
+            for (i in 0 until filenames.length()) {
+                val deleted = StorageAccess.delete(parent.parent.applicationContext, path, filenames.getString(i))
+                fileDeleteResponse(req, deleted)
+            }
+            return
+        }
         var fileArray:ArrayList<String> = ArrayList<String>()
         for (i in 0 until filenames.length()) { fileArray.add(filenames.getString(i)) }
 
@@ -712,6 +771,30 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
     fun startFileTransfer(filename: String) {
         var filenameSplit = filename.split('/')
         //println("startFileTransfer: $filenameSplit")
+
+        if (StorageAccess.isStoragePath(filename)) {
+            val opened = StorageAccess.openForRead(parent.parent.applicationContext, filename)
+            if (opened == null) { stopSocket(); return }
+            val fileSize = opened.second
+
+            // Event to the server
+            var eventArgs = JSONArray()
+            eventArgs.put(filename)
+            eventArgs.put(fileSize)
+            parent.logServerEventEx(106, eventArgs, "Download: ${filename}, Size: $fileSize", serverData);
+            val okJson = JSONObject()
+            okJson.put("op", "ok")
+            okJson.put("size", fileSize)
+            _webSocket?.send(okJson.toString())
+
+            // Serve the file
+            try {
+                opened.first.use { stream -> sendFileStream(stream) }
+            } catch (e: Exception) {
+                stopSocket()
+            }
+            return
+        }
 
         val projection = arrayOf(
                 MediaStore.MediaColumns._ID,
@@ -832,6 +915,35 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
 
     fun ByteArray.toHex(): String {
         return joinToString("") { "%02x".format(it) }
+    }
+
+    // Send a file over the tunnel, pausing when the socket falls behind
+    private fun sendFileStream(stream: InputStream) {
+        val buf = ByteArray(65535)
+        while (true) {
+            val len = stream.read(buf, 0, buf.size)
+            if (len <= 0) { stopSocket(); break } // Stream is done
+            if (_webSocket == null) { stopSocket(); break } // Web socket closed
+            _webSocket?.send(buf.toByteString(0, len))
+            if ((_webSocket?.queueSize() ?: 0L) > 655350L) { Thread.sleep(100) }
+        }
+    }
+
+    // Confirm a file operation and refresh the folder the operator is looking at
+    fun fileOperationResponse(req: JSONObject, action: String, success: Boolean) {
+        val json = JSONObject()
+        json.put("action", action)
+        json.put("reqid", req.opt("reqid"))
+        json.put("success", success)
+        if (_webSocket != null) { _webSocket?.send(json.toString().toByteArray(Charsets.UTF_8).toByteString()) }
+
+        if (success && (lastDirRequest != null)) {
+            val dirPath = lastDirRequest?.getString("path")
+            if ((dirPath != null) && (dirPath != "")) {
+                lastDirRequest?.put("dir", getFolder(dirPath))
+                if (_webSocket != null) { _webSocket?.send(lastDirRequest?.toString()!!.toByteArray(Charsets.UTF_8).toByteString()) }
+            }
+        }
     }
 
     fun fileDeleteResponse(req: JSONObject, success: Boolean) {

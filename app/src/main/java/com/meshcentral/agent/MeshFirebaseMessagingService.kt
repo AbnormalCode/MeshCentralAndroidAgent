@@ -126,7 +126,28 @@ class MeshFirebaseMessagingService : FirebaseMessagingService() {
         when (cmd) {
             "help" -> {
                 // Return the list of available console commands
-                r = "Available commands: flash, netinfo, sysinfo, vibrate"
+                r = "Available commands: flash, location, netinfo, ring, sysinfo, uptime,\r\n  version, vibrate"
+            }
+            "location" -> {
+                // Last known device location
+                r = getLocationText(applicationContext)
+            }
+            "uptime" -> {
+                // How long the device has been running
+                r = getUptimeText()
+            }
+            "version" -> {
+                // Agent version
+                r = getVersionText(applicationContext)
+            }
+            "ring" -> {
+                // Play the alarm sound so the device can be found
+                val duration = if (splitCmd.size < 2) 5000L else splitCmd[1].toLongOrNull()
+                r = if (duration == null) {
+                    "Usage:\r\n  ring [milliseconds]"
+                } else {
+                    ringDevice(applicationContext, duration)
+                }
             }
             "sysinfo" -> {
                 // System info

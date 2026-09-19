@@ -103,6 +103,7 @@ class MainActivity : AppCompatActivity() {
     lateinit var builder: Notification.Builder
     private var pendingConnectionUserInitiated: Boolean? = null
     private var localNetworkPermissionRequested = false
+    private var remoteInputPromptShown = false
 
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -123,6 +124,15 @@ class MainActivity : AppCompatActivity() {
                 })
                 tunnel.Stop()
             }
+        }
+    }
+
+    private val fileAccessLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.data
+        if ((result.resultCode == RESULT_OK) && (uri != null) && StorageAccess.setTree(this, uri)) {
+            showToastMessage(getString(R.string.file_access_granted, StorageAccess.folderName(this) ?: ""))
         }
     }
 
@@ -240,6 +250,10 @@ class MainActivity : AppCompatActivity() {
         item7.isVisible = false //(visibleScreen == 1) && (serverLink != null);
         var item8 = menu.findItem(R.id.action_settings);
         item8.isVisible = (visibleScreen == 1);
+        var item10 = menu.findItem(R.id.action_file_access);
+        item10.isVisible = (visibleScreen == 1);
+        var item11 = menu.findItem(R.id.action_file_access_clear);
+        item11.isVisible = (visibleScreen == 1) && StorageAccess.hasAccess(this);
         var item9 = menu.findItem(R.id.action_enablepushauthentication);
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
             item9.isVisible = (notificationManager.areNotificationsEnabled() == false)
@@ -293,6 +307,17 @@ class MainActivity : AppCompatActivity() {
         if (item.itemId == R.id.action_settings) {
             // Move to settings screen
             if (mainFragment != null) mainFragment?.moveToSettingsPage()
+        }
+
+        if (item.itemId == R.id.action_file_access) {
+            // Let the user pick the folder the server may browse
+            promptForFileAccess()
+        }
+
+        if (item.itemId == R.id.action_file_access_clear) {
+            // Withdraw the folder the server may browse
+            StorageAccess.clear(this)
+            showToastMessage(getString(R.string.file_access_cleared))
         }
 
         if (item.itemId == R.id.action_enablepushauthentication) {
@@ -696,6 +721,44 @@ class MainActivity : AppCompatActivity() {
         builder.show()
     }
 
+    // Ask the user to pick the folder that the server may browse
+    fun promptForFileAccess() {
+        if (alert != null) {
+            alert?.dismiss()
+            alert = null
+        }
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle(getString(R.string.file_access))
+        builder.setMessage(getString(R.string.file_access_message))
+        builder.setPositiveButton(android.R.string.ok) { _, _ ->
+            try {
+                fileAccessLauncher.launch(StorageAccess.createPickerIntent())
+            } catch (ex: Exception) {
+                showToastMessage(getString(R.string.file_access_cleared))
+            }
+        }
+        builder.setNeutralButton(android.R.string.cancel) { _, _ -> }
+        alert = builder.show()
+    }
+
+    // Offer to open the Android accessibility settings so the user can enable remote input
+    fun promptForRemoteInputSetup() {
+        this.runOnUiThread {
+            if (alert != null) {
+                alert?.dismiss()
+                alert = null
+            }
+            val builder = AlertDialog.Builder(this)
+            builder.setTitle(getString(R.string.remote_input_setup))
+            builder.setMessage(getString(R.string.remote_input_setup_message))
+            builder.setPositiveButton(android.R.string.ok) { _, _ ->
+                RemoteInputService.openAccessibilitySettings(this)
+            }
+            builder.setNeutralButton(android.R.string.cancel) { _, _ -> }
+            alert = builder.show()
+        }
+    }
+
     // Start screen sharing
     fun startProjection() {
         if ((g_ScreenCaptureService != null) || (meshAgent == null) || (meshAgent!!.state != 3)) return
@@ -714,7 +777,16 @@ class MainActivity : AppCompatActivity() {
             val pm: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
             g_autoConnect = pm.getBoolean("pref_autoconnect", false)
             g_autoConsent = pm.getBoolean("pref_autoconsent", false)
+            g_remoteInput = pm.getBoolean("pref_remoteinput", false)
             g_userDisconnect = false
+
+            // Remote input also needs the accessibility service, which only the device
+            // user can turn on. Point them at the Android settings once per session.
+            if (g_remoteInput && !remoteInputPromptShown && !RemoteInputService.isServiceEnabled(this)) {
+                remoteInputPromptShown = true
+                promptForRemoteInputSetup()
+            }
+            if (!g_remoteInput) RemoteInputController.reset()
             if (g_autoConnect == false) {
                 if (g_retryTimer != null) {
                     stopRetryTimer()

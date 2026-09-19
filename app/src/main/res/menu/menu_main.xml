@@ -38,6 +38,16 @@
         android:title="@string/enablepushauthentication"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_file_access"
+        android:orderInCategory="109"
+        android:title="@string/file_access"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_file_access_clear"
+        android:orderInCategory="110"
+        android:title="@string/file_access_clear"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_close"
         android:orderInCategory="105"
         android:title="@string/close"

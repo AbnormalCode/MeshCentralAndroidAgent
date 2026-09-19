@@ -21,6 +21,7 @@ import android.os.CountDownTimer
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.SystemClock
 import android.view.Display
 import android.view.OrientationEventListener
 import android.view.WindowManager
@@ -55,6 +56,35 @@ class ScreenCaptureService : Service() {
     private var oldcrcs : IntArray? = null
     private var newcrcs : IntArray? = null
 
+    // Stream pacing. The server asks for a minimum delay between frames, can pause the
+    // stream and can ask for the complete display to be sent again.
+    @Volatile private var paused : Boolean = false
+    @Volatile private var forceFullFrame : Boolean = false
+    @Volatile private var lastFrameTime : Long = 0
+
+    // Pause or resume the display stream
+    fun setPaused(value: Boolean) {
+        if (paused == value) return
+        paused = value
+        // Coming back from a pause, the operator's display is stale
+        if (!value) forceFullFrame = true
+    }
+
+    // Send the complete display on the next captured frame
+    fun requestFullFrame() {
+        forceFullFrame = true
+    }
+
+    // True when the next captured frame should be encoded and sent
+    private fun shouldSendFrame() : Boolean {
+        if (paused) return false
+        if (forceFullFrame) return true
+        // MeshCentral sends the frame rate as a minimum delay in milliseconds
+        val minimumDelay = g_desktop_frameRateLimiter.toLong().coerceIn(0L, MAX_FRAME_DELAY_MS)
+        if (minimumDelay == 0L) return true
+        return (SystemClock.elapsedRealtime() - lastFrameTime) >= minimumDelay
+    }
+
     private inner class ImageAvailableListener : OnImageAvailableListener {
 
         override fun onImageAvailable(reader: ImageReader) {
@@ -69,8 +99,10 @@ class ScreenCaptureService : Service() {
 
             try {
                 image = mImageReader!!.acquireLatestImage()
-                // Skip this image if null or websocket push-back is high
-                if ((image != null) && (checkDesktopTunnelPushback() < 65535) && (meshAgent?.tunnels?.getOrNull(0) != null)) {
+                // Skip this image if null, paused, sent too soon after the last one or
+                // websocket push-back is high
+                if ((image != null) && shouldSendFrame() && (checkDesktopTunnelPushback() < 65535) && (meshAgent?.tunnels?.getOrNull(0) != null)) {
+                    lastFrameTime = SystemClock.elapsedRealtime()
                     val planes: Array<Plane> = image.getPlanes()
                     val buffer = planes[0].buffer
                     val pixelStride = planes[0].pixelStride
@@ -112,9 +144,14 @@ class ScreenCaptureService : Service() {
                     // Compute how many tiles have changed
                     var changedTiles : Int = 0;
                     for (i in 0 until tilesCount) { if (oldcrcs!![i] != newcrcs!![i]) { changedTiles++; } }
-                    if (changedTiles > 0) {
+
+                    // The server asked for a complete display, so ignore the tile state
+                    val fullFrameRequested = forceFullFrame
+                    if (fullFrameRequested) { forceFullFrame = false }
+
+                    if (fullFrameRequested || (changedTiles > 0)) {
                         // If 85% of the all tiles have changed, send the entire screen
-                        if ((changedTiles * 100) >= (tilesCount * 85))
+                        if (fullFrameRequested || ((changedTiles * 100) >= (tilesCount * 85)))
                         {
                             sendEntireImage(bitmap)
                             for (i in 0 until tilesCount) { oldcrcs!![i] = newcrcs!![i]; }
@@ -481,6 +518,7 @@ class ScreenCaptureService : Service() {
         private const val START = "START"
         private const val STOP = "STOP"
         private const val SCREENCAP_NAME = "screencap"
+        private const val MAX_FRAME_DELAY_MS = 2000L
         fun getStartIntent(context: Context?, resultCode: Int, data: Intent?): Intent {
             val intent = Intent(context, ScreenCaptureService::class.java)
             intent.putExtra(ScreenCaptureService.Companion.ACTION, ScreenCaptureService.Companion.START)
@@ -525,6 +563,9 @@ class ScreenCaptureService : Service() {
             if ((t.state == 2) && (t.usage == 2)) { desktopTunnelCloud++ }
         }
         if (desktopTunnelCloud == 0) {
+            // Clear the stream pacing state so the next session starts fresh
+            paused = false
+            forceFullFrame = true
             // If there are no more desktop tunnels, stop projection
             if (!g_autoConsent) {
                 g_mainActivity!!.stopProjection()

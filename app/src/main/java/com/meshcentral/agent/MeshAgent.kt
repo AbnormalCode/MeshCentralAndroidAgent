@@ -745,7 +745,12 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
         when (cmd) {
             "help" -> {
                 // Return the list of available console commands
-                r = "Available commands: alert, battery, dial, flash, netinfo, openurl, openbrowser,\r\n  serverlog, sysinfo, storageinfo, toast, uiclose, uistate, vibrate"
+                r = "Available commands:\r\n" +
+                    "  Device: alert, apps, battery, clipboard, dial, flash, launch, location,\r\n" +
+                    "    netinfo, openurl, openbrowser, ring, storageinfo, sysinfo, toast,\r\n" +
+                    "    uptime, version, vibrate, volume\r\n" +
+                    "  Input: back, home, input, lock, notifications, recents, swipe, tap, type\r\n" +
+                    "  Session: kvmstart, kvmstop, serverlog, uiclose, uistate"
             }
             "alert" -> {
                 // Display alert message
@@ -985,6 +990,119 @@ class MeshAgent(parent: MainActivity, host: String, certHash: String, devGroupId
                         }
                     }
                 }
+            }
+            "apps" -> {
+                // List the applications that can be launched
+                r = getInstalledAppsText(parent.applicationContext)
+            }
+            "launch" -> {
+                // Bring an application to the foreground
+                if (splitCmd.size < 2) {
+                    r = "Usage:\r\n  launch [package name]";
+                } else {
+                    r = launchApplication(parent.applicationContext, splitCmd[1])
+                }
+            }
+            "clipboard" -> {
+                // Read or write the device clipboard
+                if (splitCmd.size < 2) {
+                    r = getClipboardText(parent.applicationContext)
+                } else {
+                    r = setClipboardText(parent.applicationContext, splitCmd[1])
+                }
+            }
+            "volume" -> {
+                // Report all audio levels, or set the media volume
+                if (splitCmd.size < 2) {
+                    r = getVolumeText(parent.applicationContext)
+                } else {
+                    val percent = splitCmd[1].toIntOrNull()
+                    r = if (percent == null) {
+                        "Usage:\r\n  volume [0-100]"
+                    } else {
+                        setMediaVolume(parent.applicationContext, percent)
+                    }
+                }
+            }
+            "location" -> {
+                // Report the last known device location
+                r = getLocationText(parent.applicationContext)
+            }
+            "uptime" -> {
+                // Report how long the device has been running
+                r = getUptimeText()
+            }
+            "ring" -> {
+                // Play the alarm sound so the device can be found
+                val duration = if (splitCmd.size < 2) 5000L else splitCmd[1].toLongOrNull()
+                r = if (duration == null) {
+                    "Usage:\r\n  ring [milliseconds]"
+                } else {
+                    ringDevice(parent.applicationContext, duration)
+                }
+            }
+            "version" -> {
+                // Report the agent version
+                r = getVersionText(parent.applicationContext)
+            }
+            "input" -> {
+                // Report whether this device can be controlled remotely
+                r = RemoteInputController.statusText()
+            }
+            "tap" -> {
+                // Tap the screen at a device pixel position
+                if (splitCmd.size < 3) {
+                    r = "Usage:\r\n  tap [x] [y]";
+                } else {
+                    val x = splitCmd[1].toIntOrNull()
+                    val y = splitCmd[2].toIntOrNull()
+                    r = if ((x == null) || (y == null)) {
+                        "Usage:\r\n  tap [x] [y]"
+                    } else {
+                        RemoteInputController.consoleTap(x, y)
+                    }
+                }
+            }
+            "swipe" -> {
+                // Swipe between two device pixel positions
+                if (splitCmd.size < 5) {
+                    r = "Usage:\r\n  swipe [x1] [y1] [x2] [y2] [milliseconds]";
+                } else {
+                    val x1 = splitCmd[1].toIntOrNull()
+                    val y1 = splitCmd[2].toIntOrNull()
+                    val x2 = splitCmd[3].toIntOrNull()
+                    val y2 = splitCmd[4].toIntOrNull()
+                    val duration = if (splitCmd.size > 5) splitCmd[5].toLongOrNull() else 300L
+                    r = if ((x1 == null) || (y1 == null) || (x2 == null) || (y2 == null) || (duration == null)) {
+                        "Usage:\r\n  swipe [x1] [y1] [x2] [y2] [milliseconds]"
+                    } else {
+                        RemoteInputController.consoleSwipe(x1, y1, x2, y2, duration)
+                    }
+                }
+            }
+            "type" -> {
+                // Type text into the focused text field
+                if (splitCmd.size < 2) {
+                    r = "Usage:\r\n  type \"text\"";
+                } else {
+                    r = RemoteInputController.consoleType(splitCmd[1])
+                }
+            }
+            "back" -> {
+                r = RemoteInputController.performConsoleAction(RemoteGlobalAction.BACK)
+            }
+            "home" -> {
+                r = RemoteInputController.performConsoleAction(RemoteGlobalAction.HOME)
+            }
+            "recents" -> {
+                r = RemoteInputController.performConsoleAction(RemoteGlobalAction.RECENTS)
+            }
+            "notifications" -> {
+                r = RemoteInputController.performConsoleAction(RemoteGlobalAction.NOTIFICATIONS)
+            }
+            "lock" -> {
+                // Lock the screen, which needs Android 9 or later
+                r = RemoteInputController.performConsoleAction(RemoteGlobalAction.LOCK_SCREEN)
             }
             else -> {
                 // Unknown console command

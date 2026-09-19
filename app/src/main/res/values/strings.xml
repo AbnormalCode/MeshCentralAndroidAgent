@@ -40,6 +40,19 @@
     <string name="always_ask_for_consent_when_remote_agent_connects">Always ask for consent when remote agent connects</string>
     <string name="setup_message">Setup to: %1$s?</string>
     <string name="clear_server_setup">Clear server setup?</string>
+    <string name="remote_input">Remote Input</string>
+    <string name="remote_input_allowed">Allow the server to tap, swipe and type on this device</string>
+    <string name="remote_input_blocked">Remote sessions can see the screen but cannot control it</string>
+    <string name="remote_input_service_label">MeshCentral Remote Input</string>
+    <string name="remote_input_service_summary">Lets a MeshCentral operator control this device during a remote session.</string>
+    <string name="remote_input_service_description">Performs the taps, swipes and text entry requested by a MeshCentral operator during a remote support session. Screen content is not read or reported. Turn this off at any time to end remote control.</string>
+    <string name="remote_input_setup">Remote Input Setup</string>
+    <string name="remote_input_setup_message">Remote input lets a MeshCentral operator control this device. Turn on \"MeshCentral Remote Input\" in the Android accessibility settings to finish, or turn it off there to withdraw control at any time.</string>
+    <string name="file_access">Grant File Access</string>
+    <string name="file_access_message">Choose a folder that the server may browse, download from and upload to. Access lasts until you clear it or uninstall the app.</string>
+    <string name="file_access_clear">Clear File Access</string>
+    <string name="file_access_granted">Server file access granted to %1$s</string>
+    <string name="file_access_cleared">Server file access cleared</string>
     <string name="server_pairing_link">Server Pairing Link</string>
     <string name="invalid_server_pairing_link">Invalid Server Pairing Link</string>
 </resources>
