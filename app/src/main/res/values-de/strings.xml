@@ -1,4 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="remote_control">Fernsteuerung während der Bildschirmfreigabe erlauben</string>
+    <string name="remote_control_summary">Standardmäßig deaktiviert. Erfordert die Freigabe in den Android-Bedienungshilfen und eine aktive Freigabe des gesamten Bildschirms.</string>
+    <string name="remote_control_accessibility_settings">Bedienungshilfen öffnen</string>
+    <string name="remote_control_accessibility_description">Erlaubt autorisierten MeshCentral-Benutzern, während der Bildschirmfreigabe zu tippen, zu wischen, zu navigieren und unterstützte Textfelder zu bearbeiten. Aktivieren Sie diesen Dienst nur, wenn Sie Fernsteuerung wünschen. Deaktivieren Sie die Fernsteuerung in dieser App oder beenden Sie die Bildschirmfreigabe, um den Zugriff zu beenden.</string>
+    <string name="remote_control_disclosure">Ein autorisierter MeshCentral-Benutzer kann während der Freigabe des gesamten Bildschirms tippen, wischen, navigieren und unterstützte Textfelder bearbeiten. Aktivieren Sie dazu auch den MeshCentral-Dienst in den Android-Bedienungshilfen. Beenden Sie die Bildschirmfreigabe oder deaktivieren Sie diese Option, um die Fernsteuerung zu beenden.</string>
+    <string name="remote_control_enable">Aktivieren</string>
+    <string name="remote_control_connected">Dienst für Bedienungshilfen verbunden</string>
+    <string name="remote_control_not_connected">Dienst für Bedienungshilfen nicht aktiviert</string>
+    <string name="remote_control_not_supported">Fernsteuerung erfordert Android 7 oder neuer</string>
+    <string name="stop_sharing">Freigabe beenden</string>
+
     <!-- Strings used for fragments for navigation -->
     <string name="second_fragment_label">Zweites Fragment</string>
     <string name="setup_server">Server-Setup</string>

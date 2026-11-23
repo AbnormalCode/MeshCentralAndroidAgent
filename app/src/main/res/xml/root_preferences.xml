@@ -18,5 +18,14 @@
             app:defaultValue="false"
             app:useSimpleSummaryProvider="true" />
 
+        <SwitchPreferenceCompat
+            app:key="pref_remotecontrol"
+            app:title="@string/remote_control"
+            app:summary="@string/remote_control_summary"
+            app:defaultValue="false" />
+        <Preference
+            app:key="pref_accessibility"
+            app:title="@string/remote_control_accessibility_settings"
+            app:summary="@string/remote_control_accessibility_description" />
     </PreferenceCategory>
 </PreferenceScreen>

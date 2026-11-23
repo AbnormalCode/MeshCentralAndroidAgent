@@ -15,10 +15,13 @@ authenticated connection to the server and can:
 - Receive server notifications and a limited set of console commands.
 - Approve or reject MeshCentral push-based two-factor authentication requests.
 
-Remote desktop is currently **view only**. The app can stream the display, but
-it cannot tap, swipe, type, or otherwise control the device. Android displays a
-foreground notification while screen sharing is active, and the user can deny
-or stop capture at any time.
+Remote desktop supports optional Accessibility-based control on Android 7 and
+later. Control is off by default: enable it in the app's Settings and enable the
+MeshCentral service in Android Accessibility settings, then approve full-screen
+sharing. Authorized operators can tap, drag, scroll, navigate and edit supported
+text fields. Capture adapts to folding and rotation by resizing the existing
+virtual display. See [remote desktop](docs/remote-desktop.md) for setup and the
+Galaxy Z Fold7 device checklist.
 
 ## Install
 

@@ -1,4 +1,15 @@
 <resources>
+    <string name="remote_control">Allow remote control while sharing</string>
+    <string name="remote_control_summary">Off by default. Requires Android Accessibility approval and active full-screen sharing.</string>
+    <string name="remote_control_accessibility_settings">Open Accessibility settings</string>
+    <string name="remote_control_accessibility_description">Allows authorized MeshCentral operators to tap, swipe, navigate and edit supported text fields while you share your screen. Enable this service in Android Accessibility settings only if you want remote control. Turn off remote control in this app or stop screen sharing to end access.</string>
+    <string name="remote_control_disclosure">An authorized MeshCentral operator will be able to tap, swipe, navigate and type into supported fields while you share your full screen. You must also enable the MeshCentral service in Android Accessibility settings. Stop screen sharing or turn this option off to end remote control.</string>
+    <string name="remote_control_enable">Enable</string>
+    <string name="remote_control_connected">Accessibility service connected</string>
+    <string name="remote_control_not_connected">Accessibility service not enabled</string>
+    <string name="remote_control_not_supported">Remote control requires Android 7 or later</string>
+    <string name="stop_sharing">Stop sharing</string>
+
     <string name="app_name" translatable="false">MeshCentral Agent</string>
     <!-- Strings used for fragments for navigation -->
     <string name="second_fragment_label">Second Fragment</string>

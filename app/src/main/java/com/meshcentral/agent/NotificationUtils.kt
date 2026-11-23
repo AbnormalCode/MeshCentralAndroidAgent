@@ -2,6 +2,7 @@ package com.meshcentral.agent
 import android.annotation.TargetApi
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.PendingIntent
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
@@ -43,6 +44,9 @@ object NotificationUtils {
         builder.setCategory(Notification.CATEGORY_SERVICE)
         builder.priority = NotificationCompat.PRIORITY_LOW
         builder.setShowWhen(true)
+        val stop = PendingIntent.getService(context, 1, ScreenCaptureService.getStopIntent(context),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        builder.addAction(0, context.getString(R.string.stop_sharing), stop)
         return builder.build()
     }
 }

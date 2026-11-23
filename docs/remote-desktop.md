@@ -1,202 +1,98 @@
-# Remote Desktop on Android
+# Android control and foldable screen sharing (preview)
 
-This document describes the remote desktop implementation in the MeshCentral
-Android Agent and the restrictions that apply because the agent is an ordinary,
-non-root Android application.
+## Setup
 
-## Summary
+1. Install a build from this fork and pair with your MeshCentral server.
+2. In the app Settings, turn on **Allow remote control while sharing** and accept
+   the disclosure. Control is off by default.
+3. Use **Open Accessibility settings** and manually enable the MeshCentral service.
+   Samsung normally lists it under Accessibility > Installed apps. Sideloaded APKs
+   may require Android's restricted-settings approval before enabling the service.
+4. Open remote desktop from MeshCentral and approve Android's full-screen sharing
+   request on the phone. Keep the phone unlocked.
+5. Stop sharing from Android/the notification or turn off remote control to end
+   input. Accessibility approval alone does not enable input without active sharing.
 
-Remote desktop is currently **screen sharing only**. A MeshCentral operator can
-see the device display, but cannot tap, swipe, type, press navigation buttons,
-lock input, or otherwise control the device.
+Android 6 supports viewing; gesture control requires Android 7 or newer. Existing
+installations need an APK signed with the same signing key and a higher versionCode.
+A CI debug APK cannot upgrade a Google Play-signed installation. Production signing
+uses the existing release workflow and keystore. This preview has not been verified
+on a physical Galaxy Z Fold7.
 
-The agent uses Android's public
-[MediaProjection API](https://developer.android.com/media/grow/media-projection)
-to capture the display. Android owns the capture authorization dialog and the
-user can deny or stop sharing at any time. The app runs capture in a foreground
-service, so Android also shows an ongoing notification while projection is
-active.
+## Initial controls
 
-## Session Flow
+| Viewer input | Phone action |
+| --- | --- |
+| Left click | Tap |
+| Left-button drag, then release | Swipe/drag along the recorded path |
+| Mouse wheel | Vertical swipe at the pointer |
+| Right click, Escape or browser Back | Back |
+| Middle click or Home key | Home |
+| Menu/application key | Recent apps |
+| Printable keys/Unicode input | Edit supported focused text fields |
+| Backspace/Delete and left/right arrows | Delete text or move the cursor |
+| Tab | Attempt to focus the next control |
+| Enter | Insert a newline into a supported text field |
 
-```mermaid
-sequenceDiagram
-    participant Operator as MeshCentral operator
-    participant Server as MeshCentral server
-    participant Tunnel as MeshTunnel
-    participant Activity as MainActivity
-    participant Android as Android system UI
-    participant Capture as ScreenCaptureService
+The existing MeshCentral binary input protocol is used. No browser or server
+protocol change is needed. Mouse gestures are submitted on release; they do not
+provide a live held touch. Execution is limited to one second. Queued input is
+bounded; excessive bursts can be dropped. Multi-touch/pinch, arbitrary hardware
+keys, clipboard sync and input locking are not implemented. Some apps do not
+expose Accessibility editing actions; password fields are not edited.
 
-    Operator->>Server: Open remote desktop
-    Server->>Tunnel: Create usage-2 relay tunnel
-    Tunnel->>Activity: Request screen projection
-    Activity->>Android: Launch MediaProjection request
-    Android->>Android: Ask the device user for permission
-    Android-->>Activity: Return approval or denial
-    Activity->>Capture: Start foreground capture service
-    Capture->>Android: Create virtual display
-    Android-->>Capture: Deliver display frames
-    Capture->>Tunnel: Send encoded changed regions
-    Tunnel->>Server: Relay screen updates
-    Server-->>Operator: Render the Android display
-```
+## Local authority and tunnel rights
 
-The main implementation points are:
+Every action requires local opt-in, a connected Accessibility service, an active
+full-display capture, an unlocked/interactive phone and a tunnel with operator
+remote-control rights. Missing, view-only, limited-input and no-desktop permissions
+deny input (except the server's full administrator rights, which match its normal
+rights semantics). Explicit view-only mode always denies input.
 
-- `MeshTunnel.kt` handles MeshCentral relay tunnels. Usage `2` is remote
-  desktop.
-- `MainActivity.kt` launches Android's MediaProjection authorization flow.
-- `ScreenCaptureService.kt` owns the active projection, virtual display, frame
-  processing, and transmission.
-- `AndroidManifest.xml` declares a foreground service with the
-  `mediaProjection` service type.
+The checks run again before queued actions execute. Capture size changes invalidate
+coordinate snapshots; late frames cannot restore them. Screen-off and preference
+changes clear per-tunnel input state. Disconnect and projection stop reject pending
+actions. A gesture already accepted by Android may finish for up to one second.
+The Accessibility tree and field contents are not transmitted to the server.
 
-## Capture and Encoding
+Android owns capture permission and the sharing notification remains visible.
+This feature does not bypass keyguard, secure content, protected text fields,
+work-profile restrictions or OEM policy. Consent cannot be enabled automatically.
 
-After authorization, `ScreenCaptureService` creates a virtual display at the
-device display size and attaches an `ImageReader` using RGBA pixels. For each
-available frame, the service:
+## Capture across folding and rotation
 
-1. Acquires the latest image instead of processing every queued frame.
-2. Optionally scales the image to the size requested by MeshCentral.
-3. Divides the image into 64 by 64 pixel tiles.
-4. Calculates an Adler-32 value for each tile and compares it with the previous
-   frame.
-5. Sends changed rectangular regions. If at least 85 percent of the tiles have
-   changed, it sends the complete image instead.
-6. Encodes regions as JPEG by default. PNG and WebP are also supported; TIFF is
-   not supported by the Android implementation.
+The capture service listens for default-display size/configuration changes,
+including folding without a rotation change. Android 14+ captured-content size
+and visibility callbacks also adjust capture. It resizes the existing VirtualDisplay
+and attaches a replacement ImageReader, respecting the one-create-per-projection-token
+rule. If Samsung revokes projection on a physical display switch, the app stops
+sharing and asks the user to start a new session rather than reusing the token.
 
-The server can request image type, compression quality, and scaling. A frame
-rate value is parsed from the desktop settings message, but the current capture
-code does not apply it as a time-based limiter. Actual update speed is therefore
-determined by display activity, image processing cost, device performance, and
-network throughput.
+Frames are cropped to remove row padding before scaling. Encoded dimensions,
+advertised dimensions and input mapping share the same geometry. Size/scale changes,
+refresh and new viewers trigger a full frame and reset old input mappings. App-sized
+or hidden capture is view-only. External DeX/display selection is not included.
 
-If an outgoing WebSocket queue grows beyond 65,535 bytes, the service skips
-frames until the queue drains. This favors a current display over delivering
-every intermediate frame. The same captured updates are sent to every active
-remote desktop tunnel.
+JPEG, PNG and WebP updates use changed 64x64 tiles or full frames. Slow outbound
+queues cause frame skipping. The requested frame-rate setting is not yet applied
+as a time-based capture limiter; full-resolution inner-screen capture can be expensive.
 
-When the device rotates, the service releases and recreates the virtual display
-after a short delay, then reports the new dimensions to connected viewers.
+## Fold7 device checklist
 
-## Consent and Lifetime
+JVM tests exercise protocol validation, coordinate mapping, gesture/key state,
+Unicode, rights restrictions and stale-frame rejection. They do not prove Android
+Accessibility behavior, capture consent or Samsung folding behavior.
 
-MediaProjection is a user-authorized Android capability, not a normal runtime
-permission. The agent cannot grant it to itself. Starting projection opens a
-system-owned dialog, and capture starts only if the local device user approves
-it.
-
-The setting currently labeled **Automatic consent** does not provide privileged
-or silent approval. Enabling it immediately asks Android to start projection.
-Once the user approves, the agent keeps that projection service active when the
-last viewer disconnects, allowing later viewers to reuse the active capture
-session without another prompt. With the setting disabled, projection stops
-when the final remote desktop tunnel closes.
-
-Projection also stops when the user stops sharing through Android, the app asks
-the service to stop, the agent is disconnected, the process is terminated, or
-Android revokes the projection. A stopped or lost projection cannot be silently
-restored; a new system authorization may be required. Newer Android releases
-also impose tighter one-time MediaProjection token and foreground-service
-rules, so deployments must not assume that an approval survives app or device
-restarts.
-
-## Non-Root Limitations
-
-### No remote input
-
-Android does not let an ordinary application inject arbitrary touch or keyboard
-events into other applications. The MeshCentral protocol messages for legacy
-keys, mouse input, Unicode keys, pause, refresh, and input lock are recognized
-by `MeshTunnel`, but their handlers intentionally do nothing.
-
-The app does not declare an `AccessibilityService`, is not a system-signed app,
-and does not use a rooted input-injection mechanism. As a result, the remote
-desktop is view-only.
-
-An accessibility service could implement a limited set of gestures and global
-actions after the device user explicitly enables it in Android settings. That
-would still not be equivalent to root-level input: support varies by Android
-version and device vendor, some screens reject accessibility actions, text and
-key handling are incomplete, and Android displays persistent privacy indicators
-and warnings. Accessibility must not be enabled or treated as a way to bypass
-user consent.
-
-### Protected content may be blank
-
-Applications can protect windows with `FLAG_SECURE`. Password managers,
-streaming applications, banking applications, DRM video, work-profile policy,
-and some system screens commonly use this protection. MediaProjection returns
-blank or obscured content for protected surfaces. A non-root agent cannot
-override this policy.
-
-### The lock screen cannot be managed
-
-The agent cannot silently unlock the device, enter a PIN, dismiss a secure key
-guard, change lock-screen security, or keep the device unlocked against system
-policy. What MediaProjection exposes while the device is locked depends on the
-Android version, device vendor, and lock-screen security configuration.
-
-### No silent background start
-
-Android controls when an activity and a media-projection foreground service may
-start from the background. The authorization dialog needs an activity that can
-be shown to the user. Battery restrictions, background launch limits, process
-termination, and vendor-specific power management can delay or prevent a remote
-session from starting until the user opens the app.
-
-The foreground notification is mandatory and cannot legitimately be hidden by
-a non-root application. On supported Android versions, the system also presents
-screen-sharing privacy indicators and controls.
-
-### Capture is visual only
-
-This implementation captures display pixels only. It does not capture device or
-microphone audio as part of remote desktop, forward clipboard contents, expose
-remote cursors on the device, or provide a remote shell. Any separate media,
-file, or console capabilities use different MeshCentral channels and Android
-permissions.
-
-### Performance is device-dependent
-
-Frames are copied to Android `Bitmap` objects, hashed tile by tile, compressed,
-and sent over WebSockets. High-resolution displays, animation, video, frequent
-rotation, low-end devices, thermal throttling, and slow networks can reduce the
-update rate and increase CPU, memory, battery, and data usage. This is an image
-update protocol rather than a hardware video stream, so it is intended for
-inspection and support rather than smooth video playback.
-
-## Capability Matrix
-
-| Capability | Current behavior | Primary constraint |
-| --- | --- | --- |
-| View the display | Supported after local MediaProjection approval | Android user consent |
-| Multiple viewers | Supported; frames are broadcast to active desktop tunnels | Device and network load |
-| Rotation | Supported by recreating the virtual display | Brief update interruption |
-| Quality and scaling | Supported | Server settings and device cost |
-| Remote tap, swipe, or typing | Not supported | No input implementation or privileged injection access |
-| Secure or DRM content | Not capturable | Android secure-surface policy |
-| Silent capture after restart | Not supported | MediaProjection authorization and lifecycle rules |
-| Hide sharing notification | Not supported | Foreground-service requirement |
-| Unlock or control the lock screen | Not supported | Android keyguard security |
-| Remote desktop audio | Not supported | Not implemented |
-
-## Security Model
-
-The remote desktop stream is sent through authenticated MeshCentral relay
-tunnels over WebSockets. That transport does not change Android's local trust
-model: pairing a device or granting a MeshCentral user remote-desktop rights
-does not grant the app root, system-signature permissions, MediaProjection
-approval, or input-injection privileges.
-
-For operation and support, treat the local Android user as the final authority:
-
-- The user must be able to recognize that sharing is active.
-- A denial or system-initiated stop must be respected.
-- Server permissions should restrict who can open remote desktop sessions.
-- Operators should expect protected and policy-managed screens to be hidden.
-- The feature should be described as **remote screen viewing**, not unattended
-  full remote control.
+- Verify viewing but no input with control off or Accessibility disabled.
+- Enable both controls and share the cover screen. Test taps at all corners,
+  a drag, wheel scrolling, Back/Home and typing in a non-sensitive field.
+- Repeat at 50% scaling; type non-ASCII text and emoji, then Backspace an emoji.
+- Unfold without rotation. Verify fresh dimensions/full frame and correct corner
+  taps. Fold back, then repeat several times while rotating each screen.
+- Begin a drag and fold before releasing. Verify old-coordinate input is discarded.
+- Stop sharing, turn off control, disable Accessibility, disconnect or lock the
+  phone. Verify further remote input is ignored.
+- Connect a view-only user and a second viewer; verify no view-only input and that
+  a new viewer gets a complete frame on a static screen.
+- End capture using Android's controls, then approve a fresh session. Check recovery
+  when Samsung revokes the projection during a physical display change.
