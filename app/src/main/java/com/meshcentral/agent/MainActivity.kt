@@ -16,6 +16,7 @@ import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -87,7 +88,7 @@ var g_userDisconnect : Boolean = false // Indicate user initiated disconnection
 var g_retryTimer: CountDownTimer? = null
 
 // Remote desktop values
-var g_ScreenCaptureService : ScreenCaptureService? = null
+@Volatile var g_ScreenCaptureService : ScreenCaptureService? = null
 var g_desktop_imageType : Int = 1
 var g_desktop_compressionLevel : Int = 40
 var g_desktop_scalingLevel : Int = 1024
@@ -700,7 +701,11 @@ class MainActivity : AppCompatActivity() {
     fun startProjection() {
         if ((g_ScreenCaptureService != null) || (meshAgent == null) || (meshAgent!!.state != 3)) return
         val mProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        screenCaptureLauncher.launch(mProjectionManager.createScreenCaptureIntent())
+        // Input coordinates refer to the whole default display, not a selected app window.
+        val captureIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            mProjectionManager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else mProjectionManager.createScreenCaptureIntent()
+        screenCaptureLauncher.launch(captureIntent)
     }
 
     // Stop screen sharing

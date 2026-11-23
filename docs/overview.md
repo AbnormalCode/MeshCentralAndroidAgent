@@ -23,9 +23,10 @@ are:
 - Approving or rejecting MeshCentral push-based two-factor authentication
   requests.
 
-The remote desktop implementation is currently **view only**. Protocol handlers
-for keyboard, mouse, Unicode key, and input-lock messages exist, but they are
-no-ops. This app does not currently provide general remote input control.
+Remote desktop has optional Accessibility-based control, disabled by default.
+Local opt-in, Android Accessibility approval, full-screen sharing and operator
+control rights are required. Fold/rotation changes resize the existing capture
+display and invalidate old input coordinates. Input locking is not implemented.
 
 ## Project Snapshot
 
@@ -37,7 +38,7 @@ no-ops. This app does not currently provide general remote input control.
 | Kotlin namespace | `com.meshcentral.agent` |
 | Minimum Android SDK | 23 (Android 6.0) |
 | Compile/target SDK | 35 (Android 15) |
-| Version | `1.0.23` (`versionCode` 30) |
+| Version | `1.0.24-preview.1` (`versionCode` 31) |
 | Kotlin | 1.9.10 |
 | Android Gradle Plugin | 8.6.1 |
 | Gradle wrapper | 8.7 |

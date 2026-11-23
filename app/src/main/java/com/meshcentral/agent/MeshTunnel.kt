@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.CountDownTimer
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Base64
 import okhttp3.*
@@ -51,8 +52,10 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
     private var serverTlsCertHash: ByteArray? = null
     private var connectionTimer: CountDownTimer? = null
     var _webSocket: WebSocket? = null
-    var state: Int = 0 // 0 = Disconnected, 1 = Connecting, 2 = Connected
-    var usage: Int = 0 // 2 = Desktop, 5 = Files, 10 = File transfer
+    @Volatile var state: Int = 0 // 0 = Disconnected, 1 = Connecting, 2 = Connected
+    @Volatile var usage: Int = 0 // 2 = Desktop, 5 = Files, 10 = File transfer
+    private val inputDecoder = DesktopInputDecoder()
+    @Volatile private var inputGeometry: DesktopGeometry? = null
     private var tunnelOptions : JSONObject? = null
     private var lastDirRequest : JSONObject? = null
     private var fileUpload : OutputStream? = null
@@ -142,6 +145,8 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
     }
 
     fun stopSocket() {
+        state = 0
+        inputDecoder.reset()
         // Disconnect and clean the relay socket
         if (_webSocket != null) {
             try {
@@ -236,6 +241,7 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
                             }
                             // Send the display size
                             updateDesktopDisplaySize()
+                            g_ScreenCaptureService?.requestRefresh()
                         }
                     }
                 } else {
@@ -297,12 +303,10 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
                 json.put("reqid", fileUploadReqId)
                 if (_webSocket != null) { _webSocket?.send(json.toString().toByteArray().toByteString()) }
             } else {
-                if (msg.size < 2) return
-                var cmd : Int = (msg[0].toInt() shl 8) + msg[1].toInt()
-                var cmdsize : Int = (msg[2].toInt() shl 8) + msg[3].toInt()
-                if (cmdsize != msg.size) return
-                //println("Cmd $cmd, Size: ${msg.size}, Hex: ${msg.toByteArray().toHex()}")
-                if (usage == 2) processBinaryDesktopCmd(cmd, cmdsize, msg) // Remote desktop
+                if (usage == 2) {
+                    val packets = desktopPackets(msg.toByteArray()) ?: return
+                    for (packet in packets) processBinaryDesktopCmd(packet.command, packet.bytes.size, packet.bytes.toByteString())
+                }
             }
         }
         catch (e: Exception) {
@@ -313,29 +317,28 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
     private fun processBinaryDesktopCmd(cmd : Int, cmdsize: Int, msg: ByteString) {
         when (cmd) {
             1 -> { // Legacy key input
-                // Nop
+                processRemoteInput(cmd, msg)
             }
             2 -> { // Mouse input
-                // Nop
+                processRemoteInput(cmd, msg)
             }
             5 -> { // Remote Desktop Settings
                 if (cmdsize < 6) return
-                g_desktop_imageType = msg[4].toInt() // 1 = JPEG, 2 = PNG, 3 = TIFF, 4 = WebP. TIFF is not support on Android.
-                g_desktop_compressionLevel = msg[5].toInt() // Value from 1 to 100
-                if (cmdsize >= 8) { g_desktop_scalingLevel = (msg[6].toInt() shl 8).absoluteValue + msg[7].toInt().absoluteValue } // 1024 = 100%
-                if (cmdsize >= 10) { g_desktop_frameRateLimiter = (msg[8].toInt() shl 8).absoluteValue + msg[9].toInt().absoluteValue }
+                g_desktop_imageType = (msg[4].toInt() and 255).takeIf { it == 1 || it == 2 || it == 4 } ?: 1
+                g_desktop_compressionLevel = (msg[5].toInt() and 255).coerceIn(1, 100)
+                if (cmdsize >= 8) { g_desktop_scalingLevel = unsignedShort(msg.toByteArray(), 6).coerceIn(128, 1024) }
+                if (cmdsize >= 10) { g_desktop_frameRateLimiter = unsignedShort(msg.toByteArray(), 8).coerceIn(1, 100) }
                 println("Desktop Settings, type=$g_desktop_imageType, comp=$g_desktop_compressionLevel, scale=$g_desktop_scalingLevel, rate=$g_desktop_frameRateLimiter")
-                updateDesktopDisplaySize()
+                g_ScreenCaptureService?.requestRefresh()
             }
             6 -> { // Refresh
-                // Nop
-                println("Desktop Refresh")
+                g_ScreenCaptureService?.requestRefresh()
             }
             8 -> { // Pause
                 // Nop
             }
             85 -> { // Unicode key input
-                // Nop
+                processRemoteInput(cmd, msg)
             }
             87 -> { // Input Lock
                 // Nop
@@ -346,19 +349,29 @@ class MeshTunnel(parent: MeshAgent, url: String, serverData: JSONObject) : WebSo
         }
     }
 
+    internal fun canControlDesktop(): Boolean = state == 2 && usage == 2 &&
+        desktopControlAllowed(serverData.optLong("rights", 0), serverData.optBoolean("desktopviewonly", false) ||
+            tunnelOptions?.optBoolean("desktopviewonly", false) == true)
+    internal fun resetRemoteInput() { inputDecoder.reset(); inputGeometry = null }
+    private fun processRemoteInput(command: Int, msg: ByteString) {
+        val geometry = g_ScreenCaptureService?.inputGeometry
+        if (!canControlDesktop() || !RemoteControlService.isConnected() || geometry == null ||
+            !androidx.preference.PreferenceManager.getDefaultSharedPreferences(parent.parent).getBoolean("pref_remotecontrol", false)) {
+            resetRemoteInput()
+            return
+        }
+        if (inputGeometry !== geometry) { inputDecoder.reset(); inputGeometry = geometry }
+        inputDecoder.decode(DesktopPacket(command, msg.toByteArray()), geometry, SystemClock.uptimeMillis())
+            ?.let { RemoteControlService.submit(this, it, geometry) }
+    }
+
     fun updateDesktopDisplaySize() {
         if ((g_ScreenCaptureService == null) || (_webSocket == null)) return
         //println("updateDesktopDisplaySize: ${g_ScreenCaptureService!!.mWidth} x ${g_ScreenCaptureService!!.mHeight}")
 
-        // Get the display size
-        var mWidth : Int = g_ScreenCaptureService!!.mWidth
-        var mHeight : Int = g_ScreenCaptureService!!.mHeight
-
-        // Scale the display if needed
-        if (g_desktop_scalingLevel != 1024) {
-            mWidth = (mWidth * g_desktop_scalingLevel) / 1024
-            mHeight = (mHeight * g_desktop_scalingLevel) / 1024
-        }
+        val service = g_ScreenCaptureService ?: return
+        val mWidth = service.frameGeometry?.streamWidth ?: scaledDimension(service.mWidth, g_desktop_scalingLevel)
+        val mHeight = service.frameGeometry?.streamHeight ?: scaledDimension(service.mHeight, g_desktop_scalingLevel)
 
         // Send the display size command
         var bytesOut = ByteArrayOutputStream()
