@@ -3,6 +3,8 @@ package com.meshcentral.agent
 import android.os.Bundle
 import android.os.Build
 import android.content.Intent
+import android.content.ComponentName
+import android.content.ActivityNotFoundException
 import android.provider.Settings
 import android.view.View
 import androidx.appcompat.app.AlertDialog
@@ -28,7 +30,13 @@ class SettingsFragment : PreferenceFragmentCompat() {
             }
         }
         findPreference<Preference>("pref_accessibility")?.setOnPreferenceClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            val component = ComponentName(requireContext(), RemoteControlService::class.java)
+            try {
+                startActivity(Intent("android.settings.ACCESSIBILITY_DETAILS_SETTINGS")
+                    .putExtra("android.intent.extra.COMPONENT_NAME", component))
+            } catch (ex: ActivityNotFoundException) {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
             true
         }
     }
